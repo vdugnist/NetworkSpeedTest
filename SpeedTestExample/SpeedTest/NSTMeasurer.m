@@ -8,16 +8,16 @@
 
 // <net/if.h> must be included before <iffaddrs.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <net/if.h>
 #include <net/if_dl.h>
-#include <ifaddrs.h>
 
 #import "NSTMeasurer.h"
 #import "NSTObject.h"
 #import <UIKit/UIKit.h>
 
 static NSTimeInterval const kDefaultMeasureInterval = 0.5;
-static NSUInteger const kMaxDataCount = 100;
+static NSUInteger const kMaxDataCount = 3600;
 
 @interface NSTMeasurer ()
 
@@ -25,6 +25,8 @@ static NSUInteger const kMaxDataCount = 100;
 @property (nonatomic) NSMutableArray<NSTObject*>* collectedData;
 @property (nonatomic) uint32_t previousWifiBytesCount;
 @property (nonatomic) uint32_t previousWwanBytesCount;
+@property (nonatomic) uint32_t previousWifiPacketsCount;
+@property (nonatomic) uint32_t previousWwanPacketsCount;
 
 @end
 
@@ -94,25 +96,33 @@ static NSUInteger const kMaxDataCount = 100;
 - (void)resetStartValues
 {
     NSDictionary* currentInfo = [self currentInterfaceBytesCount];
-    self.previousWifiBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWiFi)] unsignedIntegerValue];
-    self.previousWwanBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWWAN)] unsignedIntegerValue];
+    self.previousWifiBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWiFi)][0] unsignedIntegerValue];
+    self.previousWwanBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWWAN)][0] unsignedIntegerValue];
+    self.previousWifiPacketsCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWiFi)][1] unsignedIntegerValue];
+    self.previousWwanPacketsCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWWAN)][1] unsignedIntegerValue];
 }
 
 - (void)collectData
 {
     NSDictionary* currentInfo = [self currentInterfaceBytesCount];
 
-    uint32_t wifiBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWiFi)] unsignedIntegerValue];
-    uint32_t wwanBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWWAN)] unsignedIntegerValue];
+    uint32_t wifiBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWiFi)][0] unsignedIntegerValue];
+    uint32_t wwanBytesCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWWAN)][0] unsignedIntegerValue];
+    uint32_t wifiPacketsCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWiFi)][1] unsignedIntegerValue];
+    uint32_t wwanPacketsCount = (uint32_t)[currentInfo[@(NSTConnectionTypeWWAN)][1] unsignedIntegerValue];
 
     uint32_t wifiBytesCountDiff = wifiBytesCount - self.previousWifiBytesCount;
     uint32_t wwanBytesCountDiff = wwanBytesCount - self.previousWwanBytesCount;
+    uint32_t wifiPacketsCountDiff = wifiPacketsCount - self.previousWifiPacketsCount;
+    uint32_t wwanPacketsCountDiff = wwanPacketsCount - self.previousWwanPacketsCount;
 
     self.previousWifiBytesCount = wifiBytesCount;
     self.previousWwanBytesCount = wwanBytesCount;
+    self.previousWifiPacketsCount = wifiPacketsCount;
+    self.previousWwanPacketsCount = wwanPacketsCount;
 
-    [self recordBytesCount:wifiBytesCountDiff forConnectionType:NSTConnectionTypeWiFi];
-    [self recordBytesCount:wwanBytesCountDiff forConnectionType:NSTConnectionTypeWWAN];
+    [self recordBytesCount:wifiBytesCountDiff packetsCount:wifiPacketsCountDiff forConnectionType:NSTConnectionTypeWiFi];
+    [self recordBytesCount:wwanBytesCountDiff packetsCount:wwanPacketsCountDiff forConnectionType:NSTConnectionTypeWWAN];
 }
 
 - (NSDictionary*)currentInterfaceBytesCount
@@ -122,6 +132,8 @@ static NSUInteger const kMaxDataCount = 100;
 
     uint32_t wifiBytesCount = 0;
     uint32_t wwanBytesCount = 0;
+    uint32_t wifiPacketsCount = 0;
+    uint32_t wwanPacketsCount = 0;
 
     if (getifaddrs(&addrs) == 0) {
         cursor = addrs;
@@ -131,16 +143,19 @@ static NSUInteger const kMaxDataCount = 100;
 
             if (ifa_data != NULL) {
                 const uint32_t bytesCount = ifa_data->ifi_ibytes;
+                const uint32_t packetsCount = ifa_data->ifi_ipackets;
 
                 NSString* interfaceName = [NSString stringWithCString:cursor->ifa_name encoding:NSUTF8StringEncoding];
                 NSString* const kWifiPrefix = @"en";
                 NSString* const kVWANPrefix = @"pdp_ip";
 
                 if ([interfaceName hasPrefix:kWifiPrefix]) {
-                    wifiBytesCount = wifiBytesCount + bytesCount;
+                    wifiBytesCount += bytesCount;
+                    wifiPacketsCount += packetsCount;
                 }
                 else if ([interfaceName hasPrefix:kVWANPrefix]) {
-                    wwanBytesCount = wwanBytesCount + bytesCount;
+                    wwanBytesCount += bytesCount;
+                    wwanPacketsCount += packetsCount;
                 }
             }
 
@@ -151,22 +166,23 @@ static NSUInteger const kMaxDataCount = 100;
     freeifaddrs(addrs);
 
     return @{
-        @(NSTConnectionTypeWiFi) : @(wifiBytesCount),
-        @(NSTConnectionTypeWWAN) : @(wwanBytesCount),
+        @(NSTConnectionTypeWiFi) : @[ @(wifiBytesCount), @(wifiPacketsCount) ],
+        @(NSTConnectionTypeWWAN) : @[ @(wwanBytesCount), @(wwanPacketsCount) ],
     };
 }
 
-- (void)recordBytesCount:(uint32_t)bytesCount forConnectionType:(NSTConnectionType)connectionType
+- (void)recordBytesCount:(uint32_t)bytesCount packetsCount:(uint32_t)packetsCount forConnectionType:(NSTConnectionType)connectionType
 {
     if (!bytesCount) {
         return;
     }
-    
+
     NSTObject* recordObject = [NSTObject new];
     recordObject.endTimestamp = [[NSDate date] timeIntervalSince1970];
     recordObject.beginTimestamp = recordObject.endTimestamp - self.measureInterval;
     recordObject.connectionType = connectionType;
     recordObject.bytesCount = bytesCount;
+    recordObject.packetsCount = packetsCount;
 
     NSMutableArray* kvoArray = [self mutableArrayValueForKey:NSStringFromSelector(@selector(collectedData))];
 
@@ -199,7 +215,7 @@ static NSUInteger const kMaxDataCount = 100;
     if (!self.collectedData.count) {
         return 0;
     }
-    
+
     if ([[NSDate date] timeIntervalSinceNow] - self.collectedData.lastObject.endTimestamp > self.measureInterval) {
         return 0;
     }

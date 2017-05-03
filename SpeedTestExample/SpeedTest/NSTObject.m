@@ -10,11 +10,26 @@
 
 @implementation NSTObject
 
+NSString* connectionTypeDescription(NSTConnectionType type)
+{
+    switch (type) {
+    case NSTConnectionTypeWiFi:
+        return @"wifi";
+    case NSTConnectionTypeWWAN:
+        return @"wwan";
+    }
+
+    return nil;
+}
+
 - (NSString*)description
 {
-    return [NSString stringWithFormat:@"%f sec: %u bytes;",
+    return [NSString stringWithFormat:@"begin:%f duration:%.1f connectionType:%@ bytes:%u packets:%u",
+                     self.beginTimestamp,
                      self.endTimestamp - self.beginTimestamp,
-                     self.bytesCount];
+                     connectionTypeDescription(self.connectionType),
+                     self.bytesCount,
+                     self.packetsCount];
 }
 
 @end

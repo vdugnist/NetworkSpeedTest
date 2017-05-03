@@ -21,6 +21,7 @@ typedef NS_ENUM(NSUInteger, NSTConnectionType) {
 @property (nonatomic) NSTimeInterval beginTimestamp;
 @property (nonatomic) NSTimeInterval endTimestamp;
 @property (nonatomic) uint32_t bytesCount;
+@property (nonatomic) uint32_t packetsCount;
 
 @end
 
