@@ -8,7 +8,7 @@
 
 Pod::Spec.new do |s|
   s.name             = 'NetworkSpeedTest'
-  s.version          = '0.1.0'
+  s.version          = '0.1.1'
   s.summary          = 'Passively collecting network statistics for iOS'
   s.homepage         = 'https://github.com/ml-works/NetworkSpeedTest'
   s.license          = { :type => 'MIT', :file => 'LICENSE' }
